@@ -10,12 +10,15 @@
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
-    "@supabase/supabase-js": "^2.110.2",
+    "@supabase/supabase-js": "^2.112.2",
+    "isomorphic-dompurify": "^3.22.0",
     "lucide-react": "^1.24.0",
+    "marked": "^18.0.9",
     "mercadopago": "^3.2.0",
     "next": "16.2.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

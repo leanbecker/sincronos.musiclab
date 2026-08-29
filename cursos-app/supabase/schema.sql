@@ -21,6 +21,7 @@ create table if not exists courses (
   description text,
   cover_image_url text,
   price_ars numeric(12,2) not null default 0,
+  price_usd numeric(12,2), -- opcional: si se completa, el curso también se puede comprar en dólares vía Stripe
   is_published boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -45,8 +46,11 @@ create table if not exists enrollments (
   student_id uuid not null references profiles(id) on delete cascade,
   course_id uuid not null references courses(id) on delete cascade,
   status text not null default 'pending' check (status in ('pending', 'active', 'cancelled')),
+  payment_provider text not null default 'mercadopago' check (payment_provider in ('mercadopago', 'stripe')),
   mp_payment_id text, -- id de pago de Mercado Pago
   mp_preference_id text,
+  stripe_session_id text,
+  stripe_payment_intent_id text,
   amount_paid_ars numeric(12,2),
   created_at timestamptz not null default now(),
   unique (student_id, course_id)
@@ -90,13 +94,27 @@ alter table lesson_progress enable row level security;
 
 -- Perfiles: cada uno ve/edita el suyo, todos pueden ver perfiles públicos básicos
 create policy "Perfiles visibles para todos" on profiles for select using (true);
-create policy "Usuarios editan su propio perfil" on profiles for update using (auth.uid() = id);
+-- El usuario puede editar su nombre/avatar, pero NO puede cambiar su propio rol
+-- (el "using" chequea la fila antes del cambio, el "with check" la fila después:
+-- exigimos que el rol declarado sea igual al que ya tenía en la base).
+create policy "Usuarios editan su propio perfil" on profiles for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id and role = (select role from profiles where id = auth.uid()));
 
 -- Cursos: publicados son visibles para todos; el instructor ve y edita los propios (publicados o no)
 create policy "Cursos publicados son públicos" on courses for select using (is_published = true or instructor_id = auth.uid());
-create policy "Instructor crea sus cursos" on courses for insert with check (instructor_id = auth.uid());
-create policy "Instructor edita sus cursos" on courses for update using (instructor_id = auth.uid());
-create policy "Instructor borra sus cursos" on courses for delete using (instructor_id = auth.uid());
+create policy "Instructor crea sus cursos" on courses for insert with check (
+  instructor_id = auth.uid()
+  and exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'instructor')
+);
+create policy "Instructor edita sus cursos" on courses for update using (
+  instructor_id = auth.uid()
+  and exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'instructor')
+);
+create policy "Instructor borra sus cursos" on courses for delete using (
+  instructor_id = auth.uid()
+  and exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'instructor')
+);
 
 -- Lecciones: visibles si el curso es público (preview) o si el alumno está inscripto o es el instructor
 create policy "Preview visible para todos" on lessons for select using (
@@ -117,6 +135,10 @@ create policy "Alumno ve sus inscripciones" on enrollments for select using (
   or exists (select 1 from courses c where c.id = course_id and c.instructor_id = auth.uid())
 );
 create policy "Alumno crea su inscripción" on enrollments for insert with check (student_id = auth.uid());
+create policy "Alumno actualiza su inscripción pendiente" on enrollments
+  for update
+  using (student_id = auth.uid())
+  with check (student_id = auth.uid() and status <> 'active');
 
 -- Progreso: cada alumno ve y actualiza el propio
 create policy "Alumno ve su progreso" on lesson_progress for select using (student_id = auth.uid());
